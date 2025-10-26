@@ -16,3 +16,5 @@ wandb>=0.15.0  # Optional, for Weights & Biases logging
 
 # Utilities
 tqdm>=4.65.0
+dotenv
+boto3>=1.26.0  # For S3 interactions

@@ -9,7 +9,9 @@ import yaml
 from pathlib import Path
 
 from hf import emerge_text
-from encoder_dataset import EmbeddingDataset
+from encoder_dataset import EmbeddingDataset, get_collate_fn
+from s3_download import main as download_s3_data
+from datetime import datetime
 
 
 class EmbeddingTrainingModule(pl.LightningModule):
@@ -61,16 +63,12 @@ class EmbeddingTrainingModule(pl.LightningModule):
     
     def training_step(self, batch, batch_idx):
         """Training step."""
-        sentences, target_vectors = batch
+        input_ids = batch['input_ids']
+        attention_mask = batch['attention_mask']
+        target_vectors = batch['target_vectors']
         
-        # Get embeddings for each sentence in the batch
-        embeddings = []
-        for sentence in sentences:
-            emb = self.encoder.get_embeddings(sentence)
-            embeddings.append(emb)
-        
-        # Stack embeddings
-        embeddings = torch.stack(embeddings)
+        # Get embeddings from the model
+        embeddings = self.encoder.get_embeddings(input_ids, attention_mask)
         
         # Calculate MSE loss
         loss = self.criterion(embeddings, target_vectors)
@@ -82,16 +80,12 @@ class EmbeddingTrainingModule(pl.LightningModule):
     
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        sentences, target_vectors = batch
+        input_ids = batch['input_ids']
+        attention_mask = batch['attention_mask']
+        target_vectors = batch['target_vectors']
         
-        # Get embeddings for each sentence in the batch
-        embeddings = []
-        for sentence in sentences:
-            emb = self.encoder.get_embeddings(sentence)
-            embeddings.append(emb)
-        
-        # Stack embeddings
-        embeddings = torch.stack(embeddings)
+        # Get embeddings from the model
+        embeddings = self.encoder.get_embeddings(input_ids, attention_mask)
         
         # Calculate MSE loss
         loss = self.criterion(embeddings, target_vectors)
@@ -161,7 +155,10 @@ def main():
                       help='Output directory for checkpoints (overrides config)')
     
     args = parser.parse_args()
-    
+
+    # Download data from S3
+    download_s3_data()
+
     # Load configuration
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
@@ -186,6 +183,7 @@ def main():
         max_length=config['data'].get('max_length', 512),
         text_column=config['data'].get('text_column', 'caption_text'),
         vector_column=config['data'].get('vector_column', 'vector'),
+        model_id=config['model']['model_id'],
     )
     
     val_dataset = EmbeddingDataset(
@@ -194,7 +192,38 @@ def main():
         max_length=config['data'].get('max_length', 512),
         text_column=config['data'].get('text_column', 'caption_text'),
         vector_column=config['data'].get('vector_column', 'vector'),
+        model_id=config['model']['model_id'],
     )
+    
+    # If val_dataset is empty, split train_dataset into train and val
+    if len(val_dataset) == 0:
+        print("Validation dataset is empty. Splitting train dataset into train and val...")
+        from torch.utils.data import random_split
+        
+        # Calculate split sizes (e.g., 90% train, 10% val)
+        val_split_ratio = config['data'].get('val_split_ratio', 0.1)
+        total_size = len(train_dataset)
+        val_size = int(total_size * val_split_ratio)
+        train_size = total_size - val_size
+        
+        print(f"Splitting {total_size} samples into {train_size} train and {val_size} val samples")
+        
+        # Split the dataset
+        train_dataset, val_dataset = random_split(
+            train_dataset,
+            [train_size, val_size],
+            generator=torch.Generator().manual_seed(config['training'].get('seed', 42))
+        )
+    
+    # Get the tokenizer from the original train_dataset (before potential split)
+    # If train_dataset is a Subset (after random_split), get the tokenizer from the base dataset
+    if hasattr(train_dataset, 'dataset'):
+        tokenizer = train_dataset.dataset.tokenizer
+    else:
+        tokenizer = train_dataset.tokenizer
+    
+    # Create collate function with the tokenizer
+    collate_fn = get_collate_fn(tokenizer)
     
     # Create dataloaders
     train_loader = DataLoader(
@@ -203,6 +232,8 @@ def main():
         shuffle=True,
         num_workers=config['training'].get('num_workers', 4),
         pin_memory=True,
+        collate_fn=collate_fn,
+        persistent_workers=True,
     )
     
     val_loader = DataLoader(
@@ -211,7 +242,9 @@ def main():
         shuffle=False,
         num_workers=config['training'].get('num_workers', 4),
         pin_memory=True,
-    )
+        collate_fn=collate_fn,
+        persistent_workers=True,
+    ) if len(val_dataset) > 0 else None
     
     # Initialize model
     model = EmbeddingTrainingModule(
@@ -243,9 +276,11 @@ def main():
     
     # Logger
     if config['training'].get('use_wandb', False):
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        run_name = config['training'].get('run_name', f'encoder-mse-{timestamp}')
         logger = WandbLogger(
-            project=config['training'].get('wandb_project', 'encoder-training'),
-            name=config['training'].get('run_name', 'encoder-mse'),
+            project=config['training'].get('wandb_project', 'emerge_modernbert'),
+            name=run_name,
             save_dir=output_dir,
         )
     else:
@@ -259,16 +294,15 @@ def main():
         max_epochs=config['training']['max_epochs'],
         max_steps=config['training']['max_steps'],
         accelerator='auto',
-        devices=config['training'].get('devices', 1),
+        devices=config['training'].get('devices', 0),
         precision=config['training'].get('precision', '16-mixed'),
         callbacks=callbacks,
         logger=logger,
         gradient_clip_val=config['training'].get('gradient_clip_val', 1.0),
         accumulate_grad_batches=config['training'].get('accumulate_grad_batches', 1),
-        val_check_interval=config['training'].get('val_check_interval', 1.0),
+        val_check_interval=config['training'].get('val_check_interval', 1.0 if val_loader else None),
         log_every_n_steps=config['training'].get('log_every_n_steps', 50),
     )
-    
     # Train
     trainer.fit(model, train_loader, val_loader)
     
