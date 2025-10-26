@@ -277,7 +277,7 @@ def main():
     # Logger
     if config['training'].get('use_wandb', False):
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        run_name = config['training'].get('run_name', f'encoder-mse-{timestamp}')
+        run_name = config['training'].get('run_name', f'encoder-mse') + f'-{timestamp}'
         logger = WandbLogger(
             project=config['training'].get('wandb_project', 'emerge_modernbert'),
             name=run_name,

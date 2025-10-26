@@ -2,7 +2,7 @@
 
 # Model configuration
 model:
-  model_id: "answerdotai/ModernBERT-base"  # HuggingFace model ID
+  model_id: "answerdotai/ModernBERT-large"  # HuggingFace model ID
   freeze_layers: 0  # Number of encoder layers to freeze (0 = train all layers)
 
 # Data configuration
@@ -20,7 +20,7 @@ training:
   seed: 42  # Random seed for reproducibility
   
   # Training hyperparameters
-  batch_size: 16  # Batch size per device
+  batch_size: 128  # Batch size per device
   max_epochs: 10  # Maximum number of epochs
   max_steps: 10000  # Maximum number of training steps (-1 for no limit)
   
