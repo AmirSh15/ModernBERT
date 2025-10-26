@@ -1,0 +1,18 @@
+# Requirements for training the embedding encoder
+
+# Core dependencies
+torch>=2.0.0
+pytorch-lightning>=2.0.0
+transformers>=4.30.0
+
+# Data handling
+pandas>=1.5.0
+numpy>=1.23.0
+pyyaml>=6.0
+
+# Logging and monitoring
+tensorboard>=2.13.0
+wandb>=0.15.0  # Optional, for Weights & Biases logging
+
+# Utilities
+tqdm>=4.65.0

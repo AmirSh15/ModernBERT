@@ -1,0 +1,60 @@
+# Training Configuration for Embedding Encoder
+
+# Model configuration
+model:
+  model_id: "answerdotai/ModernBERT-base"  # HuggingFace model ID
+  freeze_layers: 0  # Number of encoder layers to freeze (0 = train all layers)
+
+# Data configuration
+data:
+  data_dir: "data/embeddings"  # Directory containing CSV files
+  max_length: 512  # Maximum sequence length (for future use)
+  text_column: "caption_text"  # Name of column containing input text
+  vector_column: "vector"  # Name of column containing target vectors
+
+# Training configuration
+training:
+  # Output and logging
+  output_dir: "outputs/encoder_training"  # Directory for checkpoints and logs
+  run_name: "encoder-mse-training"  # Name for this training run
+  seed: 42  # Random seed for reproducibility
+  
+  # Training hyperparameters
+  batch_size: 16  # Batch size per device
+  max_epochs: 10  # Maximum number of epochs
+  max_steps: 10000  # Maximum number of training steps (-1 for no limit)
+  
+  # Optimizer settings
+  learning_rate: 2e-5  # Learning rate
+  weight_decay: 0.01  # Weight decay for regularization
+  warmup_steps: 500  # Number of warmup steps for learning rate
+  
+  # Learning rate scheduler
+  # Uses linear warmup followed by linear decay
+  
+  # Hardware settings
+  devices: 1  # Number of GPUs/TPUs to use (1 for single GPU, -1 for all available)
+  precision: "16-mixed"  # Training precision ("32", "16-mixed", "bf16-mixed")
+  num_workers: 4  # Number of workers for data loading
+  
+  # Gradient settings
+  gradient_clip_val: 1.0  # Gradient clipping value
+  accumulate_grad_batches: 1  # Number of batches to accumulate gradients
+  
+  # Validation and logging
+  val_check_interval: 1.0  # Validation check interval (1.0 = once per epoch, 0.5 = twice per epoch)
+  log_every_n_steps: 50  # Log metrics every N steps
+  
+  # Early stopping
+  early_stopping_patience: 5  # Patience for early stopping
+  
+  # Weights & Biases logging (optional)
+  use_wandb: false  # Set to true to use Weights & Biases
+  wandb_project: "encoder-training"  # W&B project name
+  wandb_entity: null  # W&B entity (username or team name)
+
+# Advanced settings (optional)
+advanced:
+  # For very large models or limited GPU memory
+  # enable_checkpointing: true  # Enable gradient checkpointing
+  # cpu_offload: false  # Offload to CPU to save GPU memory
