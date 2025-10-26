@@ -12,6 +12,41 @@ from hf import emerge_text
 from encoder_dataset import EmbeddingDataset, get_collate_fn
 from s3_download import main as download_s3_data
 from datetime import datetime
+import glob
+
+
+def find_latest_checkpoint(output_dir: Path) -> str:
+    """
+    Find the latest checkpoint in the output directory.
+    
+    Args:
+        output_dir: Path to the output directory
+        
+    Returns:
+        Path to the latest checkpoint file, or None if no checkpoint exists
+    """
+    checkpoint_dir = output_dir / 'checkpoints'
+    
+    if not checkpoint_dir.exists():
+        return None
+    
+    # Look for last.ckpt first (saved by ModelCheckpoint with save_last=True)
+    last_ckpt = checkpoint_dir / 'last.ckpt'
+    if last_ckpt.exists():
+        print(f"Found last checkpoint: {last_ckpt}")
+        return str(last_ckpt)
+    
+    # Otherwise, find the most recent checkpoint file
+    checkpoint_files = list(checkpoint_dir.glob('*.ckpt'))
+    
+    if not checkpoint_files:
+        return None
+    
+    # Sort by modification time (most recent first)
+    latest_checkpoint = max(checkpoint_files, key=lambda p: p.stat().st_mtime)
+    print(f"Found latest checkpoint: {latest_checkpoint}")
+    
+    return str(latest_checkpoint)
 
 
 class EmbeddingTrainingModule(pl.LightningModule):
@@ -318,8 +353,30 @@ def main():
         val_check_interval=config['training'].get('val_check_interval', 1.0 if val_loader else None),
         log_every_n_steps=config['training'].get('log_every_n_steps', 50),
     )
+    
+    # Check for resume
+    ckpt_path = None
+    if config['training'].get('resume', False):
+        # Check if a specific checkpoint path is provided
+        if config['training'].get('resume_checkpoint'):
+            ckpt_path = config['training']['resume_checkpoint']
+            if not Path(ckpt_path).exists():
+                print(f"Warning: Specified checkpoint {ckpt_path} does not exist. Starting from scratch.")
+                ckpt_path = None
+            else:
+                print(f"Resuming from specified checkpoint: {ckpt_path}")
+        else:
+            # Auto-detect the latest checkpoint
+            ckpt_path = find_latest_checkpoint(output_dir)
+            if ckpt_path:
+                print(f"Resuming training from checkpoint: {ckpt_path}")
+            else:
+                print("No checkpoint found. Starting training from scratch.")
+    else:
+        print("Resume is disabled. Starting training from scratch.")
+    
     # Train
-    trainer.fit(model, train_loader, val_loader)
+    trainer.fit(model, train_loader, val_loader, ckpt_path=ckpt_path)
     
     # Save final model
     final_model_path = output_dir / 'final_model'

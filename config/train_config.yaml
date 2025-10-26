@@ -24,7 +24,7 @@ training:
   
   # Training hyperparameters
   batch_size: 128  # Batch size per device
-  max_epochs: 10  # Maximum number of epochs
+  max_epochs: 100  # Maximum number of epochs
   max_steps: 10000  # Maximum number of training steps (-1 for no limit)
   
   # Optimizer settings
@@ -50,6 +50,10 @@ training:
   
   # Early stopping
   early_stopping_patience: 5  # Patience for early stopping
+  
+  # Resume training
+  resume: true  # Set to true to resume from the last checkpoint if available
+  resume_checkpoint: null  # Path to specific checkpoint to resume from (null = auto-detect latest)
   
   # Weights & Biases logging (optional)
   use_wandb: true  # Set to true to use Weights & Biases
