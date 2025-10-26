@@ -55,9 +55,6 @@ training:
   use_wandb: true  # Set to true to use Weights & Biases
   wandb_project: "emerge_modernbert"  # W&B project name
 
-  # Checkpointing
-  checkpoint_every_n_epochs: 1  # Save checkpoints every N epochs
-
 # Advanced settings (optional)
 advanced:
   # For very large models or limited GPU memory
