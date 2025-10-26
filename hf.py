@@ -23,6 +23,7 @@ class emerge_text(nn.Module):
         self, 
         model_id="answerdotai/ModernBERT-base",
         use_projection=False,
+        projection_hidden_dim=3072,
         output_dim=768
     ):
         super().__init__()
@@ -37,7 +38,7 @@ class emerge_text(nn.Module):
         if use_projection:
             self.projection = SwiGLU(
                 input_dim=self.input_dim,
-                hidden_dim=self.input_dim*4,
+                hidden_dim=projection_hidden_dim,
                 output_dim=output_dim
             )
 

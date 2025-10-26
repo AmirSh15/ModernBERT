@@ -25,12 +25,20 @@ class EmbeddingTrainingModule(pl.LightningModule):
         warmup_steps: int = 500,
         max_steps: int = 10000,
         freeze_layers: int = 0,
+        use_projection: bool = False,
+        projection_hidden_dim: int = 3072,
+        output_dim: int = 768,
     ):
         super().__init__()
         self.save_hyperparameters()
         
         # Initialize the model
-        self.encoder = emerge_text(model_id=model_id)
+        self.encoder = emerge_text(
+            model_id=model_id,
+            use_projection=use_projection,
+            projection_hidden_dim=projection_hidden_dim,
+            output_dim=output_dim
+        )
         
         # Optionally freeze some layers
         if freeze_layers > 0:
@@ -254,6 +262,9 @@ def main():
         warmup_steps=config['training']['warmup_steps'],
         max_steps=config['training']['max_steps'],
         freeze_layers=config['model'].get('freeze_layers', 0),
+        use_projection=config['model'].get('use_projection', False),
+        projection_hidden_dim=config['model'].get('projection_hidden_dim', 3072),
+        output_dim=config['model'].get('output_dim', 768),
     )
     
     # Callbacks

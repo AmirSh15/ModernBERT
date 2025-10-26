@@ -4,6 +4,9 @@
 model:
   model_id: "answerdotai/ModernBERT-base"  # HuggingFace model ID
   freeze_layers: 0  # Number of encoder layers to freeze (0 = train all layers)
+  use_projection: true  # Whether to use SwiGLU projection layer
+  projection_hidden_dim: 3072  # Hidden dimension for SwiGLU (typically 4x output_dim)
+  output_dim: 768  # Output dimension after projection
 
 # Data configuration
 data:
