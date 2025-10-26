@@ -1,4 +1,3 @@
-import os
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
@@ -277,7 +276,6 @@ def main():
             mode='min',
             save_top_k=3,
             save_last=True,
-            every_n_epochs=config['training'].get('checkpoint_every_n_epochs', 1),
         ),
         EarlyStopping(
             monitor='val_loss',
