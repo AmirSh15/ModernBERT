@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
@@ -159,7 +160,7 @@ def main():
                       help='Path to configuration file')
     parser.add_argument('--data_dir', type=str, default=None,
                       help='Directory containing CSV files (overrides config)')
-    parser.add_argument('--output_dir', type=str, default=None,
+    parser.add_argument('--output_dir', type=str, default='outputs',
                       help='Output directory for checkpoints (overrides config)')
     
     args = parser.parse_args()
@@ -176,6 +177,7 @@ def main():
         config['data']['data_dir'] = args.data_dir
     if args.output_dir:
         config['training']['output_dir'] = args.output_dir
+        os.makedirs(args.output_dir, exist_ok=True)
     
     # Set seed for reproducibility
     pl.seed_everything(config['training'].get('seed', 42))
@@ -276,6 +278,7 @@ def main():
             mode='min',
             save_top_k=3,
             save_last=True,
+            every_n_epochs=config['training'].get('checkpoint_every_n_epochs', 1),
         ),
         EarlyStopping(
             monitor='val_loss',
@@ -294,6 +297,10 @@ def main():
             name=run_name,
             save_dir=output_dir,
         )
+        # Log configuration file to wandb
+        logger.experiment.config.update(config)
+        # Save config file as artifact
+        logger.experiment.save(args.config, policy='now')
     else:
         logger = TensorBoardLogger(
             save_dir=output_dir / 'logs',
