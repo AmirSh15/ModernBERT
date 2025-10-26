@@ -160,7 +160,7 @@ def main():
                       help='Path to configuration file')
     parser.add_argument('--data_dir', type=str, default=None,
                       help='Directory containing CSV files (overrides config)')
-    parser.add_argument('--output_dir', type=str, default='outputs',
+    parser.add_argument('--output_dir', type=str, default=None,
                       help='Output directory for checkpoints (overrides config)')
     
     args = parser.parse_args()
@@ -177,7 +177,6 @@ def main():
         config['data']['data_dir'] = args.data_dir
     if args.output_dir:
         config['training']['output_dir'] = args.output_dir
-        os.makedirs(args.output_dir, exist_ok=True)
     
     # Set seed for reproducibility
     pl.seed_everything(config['training'].get('seed', 42))
