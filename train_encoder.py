@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Callback
 from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger
 from torch.utils.data import DataLoader
 import argparse
@@ -189,6 +189,134 @@ class EmbeddingTrainingModule(pl.LightningModule):
         }
 
 
+class TextEncodingCapabilityCallback(Callback):
+    """
+    Callback to monitor the model's text encoding capabilities during training.
+    Tests on semantic similarity tasks to detect catastrophic forgetting.
+    """
+    
+    def __init__(self, check_every_n_epochs: int = 1):
+        super().__init__()
+        self.check_every_n_epochs = check_every_n_epochs
+        
+        # High similarity pairs
+        self.similar_pairs = [
+            ("The cat sat on the mat", "A cat is sitting on a mat"),
+            ("I love eating pizza", "Pizza is my favorite food"),
+            ("The weather is sunny today", "Today the sun is shining"),
+            ("She is reading a book", "A woman is looking at a book"),
+            ("The dog is playing in the garden", "A dog plays outside in the yard"),
+            ("He drives a red car", "His car is red and he drives it"),
+            ("The baby is sleeping peacefully", "A baby sleeps quietly"),
+            ("Students are studying for exams", "Pupils are preparing for their tests"),
+            ("The mountain is covered with snow", "Snow covers the mountain peak"),
+            ("She enjoys listening to music", "Music is something she likes to hear"),
+            ("The train arrives at noon", "At 12 PM the train gets here"),
+            ("Birds are flying in the sky", "Several birds fly above us"),
+            ("He is cooking dinner", "A man prepares an evening meal"),
+            ("The flowers smell wonderful", "These flowers have a beautiful fragrance"),
+            ("Children are playing soccer", "Kids play football together"),
+        ]
+        
+        # Low similarity pairs
+        self.dissimilar_pairs = [
+            ("The cat sat on the mat", "Quantum physics is fascinating"),
+            ("I love eating pizza", "The stock market crashed yesterday"),
+            ("Machine learning is powerful", "The ocean is very deep"),
+            ("She is reading a book", "Robots are taking over manufacturing"),
+            ("The dog is playing in the garden", "Mathematics requires logical thinking"),
+            ("He drives a red car", "Ancient civilizations built pyramids"),
+            ("The baby is sleeping peacefully", "Climate change affects polar ice caps"),
+            ("Students are studying for exams", "Volcanoes erupt with molten lava"),
+            ("The mountain is covered with snow", "Bacteria are microscopic organisms"),
+            ("She enjoys listening to music", "The periodic table organizes elements"),
+            ("The train arrives at noon", "Photosynthesis produces oxygen"),
+            ("Birds are flying in the sky", "Democracy requires active participation"),
+            ("He is cooking dinner", "Binary code consists of zeros and ones"),
+            ("The flowers smell wonderful", "Economics studies resource allocation"),
+            ("Children are playing soccer", "DNA contains genetic information"),
+            ("Coffee keeps me awake", "Galaxies contain billions of stars"),
+            ("The sunset is beautiful tonight", "Algorithms solve computational problems"),
+            ("My phone battery is low", "Renaissance art revolutionized painting"),
+            ("She won the marathon race", "Protein synthesis occurs in ribosomes"),
+            ("The library is quiet today", "Nuclear fusion powers the sun"),
+        ]
+        
+        # Paraphrase pairs (should be very similar)
+        self.paraphrase_pairs = [
+            ("The quick brown fox jumps over the lazy dog", 
+             "A fast brown fox leaps over a lazy dog"),
+            ("Scientists discovered a new species", 
+             "A new species was discovered by scientists"),
+            ("The company announced record profits", 
+             "Record profits were announced by the company"),
+            ("She completed the project ahead of schedule",
+             "The project was finished early by her"),
+            ("The teacher explained the concept clearly",
+             "The concept was clearly explained by the teacher"),
+            ("Heavy rain caused flooding in the city",
+             "Flooding in the city was caused by heavy rain"),
+            ("The artist painted a beautiful landscape",
+             "A beautiful landscape was painted by the artist"),
+            ("Researchers developed a new vaccine",
+             "A new vaccine was developed by researchers"),
+            ("The storm damaged several buildings",
+             "Several buildings were damaged by the storm"),
+            ("The chef prepared an excellent meal",
+             "An excellent meal was prepared by the chef"),
+            ("The committee approved the proposal unanimously",
+             "The proposal was unanimously approved by the committee"),
+            ("The movie captivated audiences worldwide",
+             "Audiences worldwide were captivated by the movie"),
+        ]
+    
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Run text encoding capability tests at the end of validation."""
+        if trainer.current_epoch % self.check_every_n_epochs != 0:
+            return
+        
+        pl_module.eval()
+        
+        with torch.no_grad():
+            # Test similar pairs
+            similar_scores = []
+            for text1, text2 in self.similar_pairs:
+                emb1 = pl_module([text1])
+                emb2 = pl_module([text2])
+                similarity = nn.functional.cosine_similarity(emb1, emb2, dim=1).item()
+                similar_scores.append(similarity)
+            
+            # Test dissimilar pairs
+            dissimilar_scores = []
+            for text1, text2 in self.dissimilar_pairs:
+                emb1 = pl_module([text1])
+                emb2 = pl_module([text2])
+                similarity = nn.functional.cosine_similarity(emb1, emb2, dim=1).item()
+                dissimilar_scores.append(similarity)
+            
+            # Test paraphrase pairs
+            paraphrase_scores = []
+            for text1, text2 in self.paraphrase_pairs:
+                emb1 = pl_module([text1])
+                emb2 = pl_module([text2])
+                similarity = nn.functional.cosine_similarity(emb1, emb2, dim=1).item()
+                paraphrase_scores.append(similarity)
+            
+            # Calculate metrics
+            avg_similar = sum(similar_scores) / len(similar_scores)
+            avg_dissimilar = sum(dissimilar_scores) / len(dissimilar_scores)
+            avg_paraphrase = sum(paraphrase_scores) / len(paraphrase_scores)
+            
+            # Separation score: higher is better (similar should be high, dissimilar low)
+            separation_score = avg_similar - avg_dissimilar
+            
+            # Log metrics
+            pl_module.log('encoding_capability/similar_avg', avg_similar, on_epoch=True)
+            pl_module.log('encoding_capability/dissimilar_avg', avg_dissimilar, on_epoch=True)
+            pl_module.log('encoding_capability/paraphrase_avg', avg_paraphrase, on_epoch=True)
+            pl_module.log('encoding_capability/separation_score', separation_score, on_epoch=True)
+            
+
 def main():
     """Main training function."""
     parser = argparse.ArgumentParser(description='Train embedding encoder with MSE loss')
@@ -320,6 +448,9 @@ def main():
             mode='min',
         ),
         LearningRateMonitor(logging_interval='step'),
+        TextEncodingCapabilityCallback(
+            check_every_n_epochs=config['training'].get('encoding_check_interval', 1)
+        ),
     ]
     
     # Logger
