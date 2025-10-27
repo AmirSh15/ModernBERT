@@ -79,7 +79,7 @@ class EmbeddingTrainingModule(pl.LightningModule):
         if freeze_layers > 0:
             self._freeze_layers(freeze_layers)
         elif freeze_layers == -1:
-            self._freeze_layers(len(self.encoder.model.encoder.layer) + 1)  # +1 for embeddings
+            self._freeze_layers(len(self.encoder.model.layers))  # +1 for embeddings
         
         # Loss function
         self.criterion = nn.MSELoss()
@@ -97,7 +97,7 @@ class EmbeddingTrainingModule(pl.LightningModule):
             param.requires_grad = False
         
         # Freeze encoder layers
-        for i, layer in enumerate(self.encoder.model.encoder.layer):
+        for i, layer in enumerate(self.encoder.model.layers):
             if i < num_layers:
                 for param in layer.parameters():
                     param.requires_grad = False
