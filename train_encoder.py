@@ -104,7 +104,20 @@ class EmbeddingTrainingModule(pl.LightningModule):
                     
     def forward(self, text):
         """Forward pass through the encoder."""
-        return self.encoder.get_embeddings(text)
+        # Tokenize the text first
+        encoded = self.encoder.tokenizer(
+            text,
+            padding=True,
+            truncation=True,
+            max_length=512,
+            return_tensors='pt'
+        )
+        
+        # Move to the same device as the model
+        input_ids = encoded['input_ids'].to(self.device)
+        attention_mask = encoded['attention_mask'].to(self.device)
+        
+        return self.encoder.get_embeddings(input_ids, attention_mask)
     
     def training_step(self, batch, batch_idx):
         """Training step."""
