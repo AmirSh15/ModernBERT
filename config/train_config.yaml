@@ -3,8 +3,8 @@
 # Model configuration
 model:
   model_id: "answerdotai/ModernBERT-base"  # HuggingFace model ID
-  freeze_layers: 0  # Number of encoder layers to freeze (0 = train all layers)
-  use_projection: false  # Whether to use SwiGLU projection layer
+  freeze_layers: -1  # Number of encoder layers to freeze (0 = train all layers)
+  use_projection: true  # Whether to use SwiGLU projection layer
   projection_hidden_dim: 3072  # Hidden dimension for SwiGLU (typically 4x output_dim)
   output_dim: 768  # Output dimension after projection
 
@@ -28,7 +28,7 @@ training:
   max_steps: 10000  # Maximum number of training steps (-1 for no limit)
   
   # Optimizer settings
-  learning_rate: 0.00002  # Learning rate
+  learning_rate: 0.0002  # Learning rate
   weight_decay: 0.01  # Weight decay for regularization
   warmup_steps: 500  # Number of warmup steps for learning rate
   
