@@ -33,6 +33,9 @@ training:
   weight_decay: 0.01  # Weight decay for regularization
   warmup_steps: 500  # Number of warmup steps for learning rate
   
+  # Loss function settings
+  kl_divergence_weight: 0.0  # Weight for inverse KL divergence loss (0.0 = MSE only, 1.0 = equal weighting)
+  
   # Learning rate scheduler
   # Uses linear warmup followed by linear decay
   

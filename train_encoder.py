@@ -50,7 +50,7 @@ def find_latest_checkpoint(output_dir: Path) -> str:
 
 
 class EmbeddingTrainingModule(pl.LightningModule):
-    """PyTorch Lightning module for training the encoder with MSE loss."""
+    """PyTorch Lightning module for training the encoder with MSE loss and optional KL divergence."""
     
     def __init__(
         self,
@@ -63,6 +63,7 @@ class EmbeddingTrainingModule(pl.LightningModule):
         use_projection: bool = False,
         projection_hidden_dim: int = 3072,
         output_dim: int = 768,
+        kl_divergence_weight: float = 0.0,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -81,8 +82,10 @@ class EmbeddingTrainingModule(pl.LightningModule):
         elif freeze_layers == -1:
             self._freeze_layers(len(self.encoder.model.layers))  # +1 for embeddings
         
-        # Loss function
-        self.criterion = nn.MSELoss()
+        # Loss functions
+        self.mse_criterion = nn.MSELoss()
+        self.kl_criterion = nn.KLDivLoss(reduction='batchmean')
+        self.kl_divergence_weight = kl_divergence_weight
         
         # For tracking
         self.learning_rate = learning_rate
@@ -129,9 +132,27 @@ class EmbeddingTrainingModule(pl.LightningModule):
         embeddings = self.encoder.get_embeddings(input_ids, attention_mask)
         
         # Calculate MSE loss
-        loss = self.criterion(embeddings, target_vectors)
+        mse_loss = self.mse_criterion(embeddings, target_vectors)
         
-        # Log metrics
+        # Calculate inverse KL divergence loss if weight > 0
+        if self.kl_divergence_weight > 0:
+            # Convert to distributions using softmax
+            pred_dist = nn.functional.log_softmax(embeddings, dim=1)
+            target_dist = nn.functional.softmax(target_vectors, dim=1)
+            
+            # Inverse KL: KL(target || pred) instead of KL(pred || target)
+            kl_loss = self.kl_criterion(pred_dist, target_dist)
+            
+            # Combined loss
+            loss = (1 - self.kl_divergence_weight) * mse_loss + self.kl_divergence_weight * kl_loss
+            
+            # Log individual losses
+            self.log('train_mse_loss', mse_loss, on_step=True, on_epoch=True)
+            self.log('train_kl_loss', kl_loss, on_step=True, on_epoch=True)
+        else:
+            loss = mse_loss
+        
+        # Log total loss
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         
         return loss
@@ -146,7 +167,25 @@ class EmbeddingTrainingModule(pl.LightningModule):
         embeddings = self.encoder.get_embeddings(input_ids, attention_mask)
         
         # Calculate MSE loss
-        loss = self.criterion(embeddings, target_vectors)
+        mse_loss = self.mse_criterion(embeddings, target_vectors)
+        
+        # Calculate inverse KL divergence loss if weight > 0
+        if self.kl_divergence_weight > 0:
+            # Convert to distributions using softmax
+            pred_dist = nn.functional.log_softmax(embeddings, dim=1)
+            target_dist = nn.functional.softmax(target_vectors, dim=1)
+            
+            # Inverse KL: KL(target || pred) instead of KL(pred || target)
+            kl_loss = self.kl_criterion(pred_dist, target_dist)
+            
+            # Combined loss
+            loss = (1 - self.kl_divergence_weight) * mse_loss + self.kl_divergence_weight * kl_loss
+            
+            # Log individual losses
+            self.log('val_mse_loss', mse_loss, on_step=False, on_epoch=True)
+            self.log('val_kl_loss', kl_loss, on_step=False, on_epoch=True)
+        else:
+            loss = mse_loss
         
         # Calculate cosine similarity as an additional metric
         cos_sim = nn.functional.cosine_similarity(embeddings, target_vectors, dim=1).mean()
@@ -445,6 +484,7 @@ def main():
         use_projection=config['model'].get('use_projection', False),
         projection_hidden_dim=config['model'].get('projection_hidden_dim', 3072),
         output_dim=config['model'].get('output_dim', 768),
+        kl_divergence_weight=config['training'].get('kl_divergence_weight', 0.0),
     )
     
     # Callbacks
