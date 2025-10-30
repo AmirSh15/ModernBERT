@@ -370,6 +370,7 @@ def main():
         text_column=config['data'].get('text_column', 'caption_text'),
         vector_column=config['data'].get('vector_column', 'vector'),
         model_id=config['model']['model_id'],
+        use_synthetic_captions=config['data'].get('use_synthetic_captions', False)
     )
     
     val_dataset = EmbeddingDataset(
@@ -379,6 +380,7 @@ def main():
         text_column=config['data'].get('text_column', 'caption_text'),
         vector_column=config['data'].get('vector_column', 'vector'),
         model_id=config['model']['model_id'],
+        use_synthetic_captions=config['data'].get('use_synthetic_captions', False)
     )
     
     # If val_dataset is empty, split train_dataset into train and val

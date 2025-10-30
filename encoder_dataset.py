@@ -33,6 +33,7 @@ class EmbeddingDataset(Dataset):
         text_column: str = 'caption_text',
         vector_column: str = 'vector',
         model_id: str = "answerdotai/ModernBERT-base",
+        use_synthetic_captions: bool = False,
     ):
         """
         Args:
@@ -43,6 +44,7 @@ class EmbeddingDataset(Dataset):
             text_column: Name of the column containing text (default: 'caption_text')
             vector_column: Name of the column containing vectors (default: 'vector')
             model_id: HuggingFace model ID for tokenizer
+            use_synthetic_captions: Whether to use synthetic captions if available
         """
         self.data_dir = Path(data_dir)
         self.split = split
@@ -50,6 +52,7 @@ class EmbeddingDataset(Dataset):
         self.vector_dim = vector_dim
         self.text_column = text_column
         self.vector_column = vector_column
+        self.use_synthetic_captions = use_synthetic_captions
         
         # Initialize tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -67,7 +70,7 @@ class EmbeddingDataset(Dataset):
         # Log missing vectors summary
         self._log_missing_vectors()
     
-    def _load_data(self) -> List[Tuple[str, torch.Tensor]]:
+    def _load_data(self) -> List[Tuple[str, torch.Tensor, str]]:
         """Load data from CSV files."""
         data = []
         
@@ -105,14 +108,14 @@ class EmbeddingDataset(Dataset):
             # Check for vector column
             if self.vector_column in df.columns:
                 # Vector is in a single column (comma-separated or JSON array)
-                data.extend(self._parse_vector_column(df, text_col))
+                data.extend(self._parse_vector_column(df, text_col, csv_file.name))
             elif 'vector' in df.columns:
                 # Fallback to 'vector' column
                 logger.info(f"Using 'vector' column instead of '{self.vector_column}'")
-                data.extend(self._parse_vector_column(df, text_col))
+                data.extend(self._parse_vector_column(df, text_col, csv_file.name))
             else:
                 # Vector dimensions are in separate columns
-                data.extend(self._parse_dimension_columns(df, text_col))
+                data.extend(self._parse_dimension_columns(df, text_col, csv_file.name))
             
             # Update file name for missing vectors from this file
             for i in range(current_missing_count, len(self.missing_vectors)):
@@ -120,7 +123,7 @@ class EmbeddingDataset(Dataset):
         
         return data
 
-    def _parse_vector_column(self, df: pd.DataFrame, text_col: str, verbose: bool=False) -> List[Tuple[str, torch.Tensor]]:
+    def _parse_vector_column(self, df: pd.DataFrame, text_col: str, file_name: str = None, verbose: bool=False) -> List[Tuple[str, torch.Tensor, str]]:
         """Parse data where vectors are in a single column."""
         data = []
         
@@ -137,6 +140,27 @@ class EmbeddingDataset(Dataset):
                 
                 text = str(text).strip()
                 
+                # Get synthetic caption
+                synthetic_caption = ""
+                if 'synthetic_caption_1' in df.columns:
+                    synthetic_caption = row['synthetic_caption_1']
+                    if pd.isna(synthetic_caption):
+                        synthetic_caption = ""
+                    else:
+                        synthetic_caption = str(synthetic_caption).strip()
+
+                # Skip if synthetic caption is missing
+                if pd.isna(synthetic_caption) or (isinstance(synthetic_caption, str) and len(synthetic_caption.strip()) == 0):
+                    if verbose:
+                        logger.warning(f"Skipping row {idx}: missing or empty synthetic caption")
+                    self.missing_vectors.append({
+                        'row_index': idx,
+                        'text': text,
+                        'reason': 'missing synthetic caption',
+                        'file': file_name
+                    })
+                    continue
+
                 # Get vector
                 vector_str = row[self.vector_column if self.vector_column in df.columns else 'vector']
                 
@@ -175,12 +199,12 @@ class EmbeddingDataset(Dataset):
                         'row_index': idx,
                         'text': text,
                         'reason': f'vector dimension mismatch (expected {self.vector_dim}, got {len(vector)})',
-                        'file': None  # Will be set in _load_data
+                        'file': file_name
                     })
                     continue
                 
                 vector_tensor = torch.tensor(vector, dtype=torch.float32)
-                data.append((text, vector_tensor))
+                data.append((text, vector_tensor, synthetic_caption))
                 
             except Exception as e:
                 if verbose:
@@ -189,7 +213,7 @@ class EmbeddingDataset(Dataset):
                     'row_index': idx,
                     'text': text if 'text' in locals() else 'N/A',
                     'reason': f'parsing error: {str(e)}',
-                    'file': None  # Will be set in _load_data
+                    'file': file_name
                 })
                 continue
         
@@ -236,12 +260,12 @@ class EmbeddingDataset(Dataset):
             else:
                 logger.warning(f"  {file_name}: {missing_count} rows have missing vectors")
     
-    def _parse_dimension_columns(self, df: pd.DataFrame, text_col: str) -> List[Tuple[str, torch.Tensor]]:
+    def _parse_dimension_columns(self, df: pd.DataFrame, text_col: str, file_name: str = None) -> List[Tuple[str, torch.Tensor, str]]:
         """Parse data where vector dimensions are in separate columns."""
         data = []
         
-        # Find dimension columns (all columns except text column)
-        dim_columns = [col for col in df.columns if col != text_col]
+        # Find dimension columns (all columns except text column and synthetic_caption_1)
+        dim_columns = [col for col in df.columns if col != text_col and col != 'synthetic_caption_1']
         
         if not dim_columns:
             raise ValueError("No vector dimension columns found in CSV")
@@ -261,6 +285,15 @@ class EmbeddingDataset(Dataset):
                     logger.warning(f"Skipping row {idx}: missing or empty text")
                     continue
                 
+                # Get synthetic caption
+                synthetic_caption = ""
+                if 'synthetic_caption_1' in df.columns:
+                    synthetic_caption = row['synthetic_caption_1']
+                    if pd.isna(synthetic_caption):
+                        synthetic_caption = ""
+                    else:
+                        synthetic_caption = str(synthetic_caption).strip()
+                
                 vector = np.array([float(row[col]) for col in dim_columns])
                 
                 # Check for NaN values in vector
@@ -270,12 +303,12 @@ class EmbeddingDataset(Dataset):
                         'row_index': idx,
                         'text': text,
                         'reason': 'vector contains NaN values',
-                        'file': None  # Will be set in _load_data
+                        'file': file_name
                     })
                     continue
                 
                 vector_tensor = torch.tensor(vector, dtype=torch.float32)
-                data.append((text, vector_tensor))
+                data.append((text, vector_tensor, synthetic_caption))
                 
             except Exception as e:
                 logger.warning(f"Skipping row {idx} due to parsing error: {e}")
@@ -283,7 +316,7 @@ class EmbeddingDataset(Dataset):
                     'row_index': idx,
                     'text': text if 'text' in locals() else 'N/A',
                     'reason': f'parsing error: {str(e)}',
-                    'file': None  # Will be set in _load_data
+                    'file': file_name
                 })
                 continue
         
@@ -299,12 +332,14 @@ class EmbeddingDataset(Dataset):
                 - 'input_ids': Tokenized input IDs (tensor)
                 - 'attention_mask': Attention mask (tensor)
                 - 'target_vector': The target embedding vector (tensor)
+                - 'text': The original text (string)
+                - 'synthetic_caption': The synthetic caption (string)
         """
-        text, target_vector = self.data[idx]
+        text, target_vector, synthetic_caption = self.data[idx]
         
         # Tokenize the text
         encoded = self.tokenizer(
-            text,
+            synthetic_caption if self.use_synthetic_captions else text,
             max_length=self.max_length,
             truncation=True,
             return_tensors='pt',
@@ -315,6 +350,8 @@ class EmbeddingDataset(Dataset):
             'input_ids': encoded['input_ids'].squeeze(0),
             'attention_mask': encoded['attention_mask'].squeeze(0),
             'target_vector': target_vector,
+            'text': text,
+            'synthetic_caption': synthetic_caption,
         }
 
 
@@ -336,13 +373,15 @@ class EmbeddingCollator:
         Collate function for DataLoader with padding.
         
         Args:
-            batch: List of dictionaries with 'input_ids', 'attention_mask', and 'target_vector'
+            batch: List of dictionaries with 'input_ids', 'attention_mask', 'target_vector', 'text', and 'synthetic_caption'
             
         Returns:
             A dictionary containing:
                 - 'input_ids': Padded tensor of shape (batch_size, max_seq_len)
                 - 'attention_mask': Padded tensor of shape (batch_size, max_seq_len)
                 - 'target_vectors': Stacked tensor of shape (batch_size, vector_dim)
+                - 'text': List of text strings
+                - 'synthetic_captions': List of synthetic caption strings
         """
         # Extract target vectors
         target_vectors = [item['target_vector'] for item in batch]
@@ -361,7 +400,13 @@ class EmbeddingCollator:
         
         # Add target vectors to the batch
         padded_batch['target_vectors'] = torch.stack(target_vectors)
+
+        # Add text to the batch
+        padded_batch['text'] = [item['text'] for item in batch]
         
+        # Add synthetic captions to the batch
+        padded_batch['synthetic_captions'] = [item['synthetic_caption'] for item in batch]
+
         return padded_batch
 
 
@@ -407,6 +452,8 @@ if __name__ == '__main__':
             print(f"  Attention mask shape: {item['attention_mask'].shape}")
             print(f"  Target vector shape: {item['target_vector'].shape}")
             print(f"  Target vector (first 5 dims): {item['target_vector'][:5]}")
+            print(f"  Text: {item['text'][:100]}...")
+            print(f"  Synthetic caption: {item['synthetic_caption'][:100]}...")
         
         # Test DataLoader
         from torch.utils.data import DataLoader
@@ -428,3 +475,5 @@ if __name__ == '__main__':
         print(f"  Attention mask shape: {batch['attention_mask'].shape}")
         print(f"  Target vectors shape: {batch['target_vectors'].shape}")
         print(f"  Max sequence length in batch: {batch['input_ids'].shape[1]}")
+        print(f"  Number of texts: {len(batch['text'])}")
+        print(f"  Number of synthetic captions: {len(batch['synthetic_captions'])}")

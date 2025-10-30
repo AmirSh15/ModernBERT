@@ -3,7 +3,7 @@
 # Model configuration
 model:
   model_id: "answerdotai/ModernBERT-base"  # HuggingFace model ID
-  freeze_layers: -1  # Number of encoder layers to freeze (0 = train all layers)
+  freeze_layers: -1  # Number of encoder layers to freeze (0 = train all layers, -1 freeze all)
   use_projection: true  # Whether to use SwiGLU projection layer
   projection_hidden_dim: 3072  # Hidden dimension for SwiGLU (typically 4x output_dim)
   output_dim: 768  # Output dimension after projection
@@ -14,12 +14,13 @@ data:
   max_length: 512  # Maximum sequence length (for future use)
   text_column: "caption_text"  # Name of column containing input text
   vector_column: "vector"  # Name of column containing target vectors
+  use_synthetic_captions: true  # Whether to use synthetic captions if available
 
 # Training configuration
 training:
   # Output and logging
   output_dir: "outputs/encoder_training"  # Directory for checkpoints and logs
-  run_name: "encoder-mse-training"  # Name for this training run
+  run_name: "encoder-mse-training-with-projection-synthetic-captions"  # Name for this training run
   seed: 42  # Random seed for reproducibility
   
   # Training hyperparameters
@@ -28,7 +29,7 @@ training:
   max_steps: 10000  # Maximum number of training steps (-1 for no limit)
   
   # Optimizer settings
-  learning_rate: 0.0002  # Learning rate
+  learning_rate: 0.00005  # Learning rate
   weight_decay: 0.01  # Weight decay for regularization
   warmup_steps: 500  # Number of warmup steps for learning rate
   

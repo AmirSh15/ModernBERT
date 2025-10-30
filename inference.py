@@ -4,12 +4,15 @@ Inference script for the trained encoder model.
 Loads a checkpoint and performs inference on text inputs.
 """
 
+import pandas as pd
 import torch
 import argparse
 from pathlib import Path
+from torch.utils.data import DataLoader
 from typing import List, Union
 import numpy as np
 
+from encoder_dataset import EmbeddingDataset, get_collate_fn
 from train_encoder import EmbeddingTrainingModule
 
 
@@ -181,7 +184,7 @@ def main():
     parser.add_argument(
         '--checkpoint',
         type=str,
-        default='outputs/encoder_training/checkpoints/encoder-epoch=270-val_loss=0.0242.ckpt',
+        default='outputs/encoder_training/checkpoints/encoder-epoch=33-val_loss=0.0031.ckpt',
         help='Path to checkpoint file'
     )
     parser.add_argument(
@@ -217,13 +220,44 @@ def main():
         print("Running example inference...")
         print("="*80)
         
+        train_dataset = EmbeddingDataset(
+            data_dir="data/embeddings",
+            split='train',
+            max_length= 512,
+            text_column='caption_text',
+            vector_column='vector',
+            model_id="answerdotai/ModernBERT-base",
+        )
+        if hasattr(train_dataset, 'dataset'):
+            tokenizer = train_dataset.dataset.tokenizer
+        else:
+            tokenizer = train_dataset.tokenizer
+        
+        # Create collate function with the tokenizer
+        collate_fn = get_collate_fn(tokenizer)
+        dataloaders = DataLoader(
+            train_dataset,
+            batch_size=4,
+            shuffle=False,
+            num_workers=0,
+            collate_fn=collate_fn,
+        )
+        # Get one batch
+        batch = next(iter(dataloaders))
+        
         # Example 1: Single text encoding
         print("\n--- Example 1: Single text encoding ---")
-        text = "A beautiful sunset over the ocean with orange and pink colors"
+        # text = "A beautiful sunset over the ocean with orange and pink colors"
+        text = batch['text'][0]
+        gt_embedding = batch['target_vectors'].numpy()[0]
         embedding = inferencer.encode(text)
         print(f"Text: {text}")
         print(f"Embedding shape: {embedding.shape}")
         print(f"Embedding (first 5 dims): {embedding[:5]}")
+        print(f"Distance to ground truth embedding: {np.linalg.norm(embedding - gt_embedding):.4f}")
+        # compare their cosine similarity
+        cos_sim = np.dot(embedding, gt_embedding) / (np.linalg.norm(embedding) * np.linalg.norm(gt_embedding))
+        print(f"Cosine similarity to ground truth embedding: {cos_sim:.4f}")
         
         # Example 2: Batch encoding
         print("\n--- Example 2: Batch encoding ---")
